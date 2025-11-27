@@ -142,20 +142,17 @@ writeShellApplication {
 ''${BOLD}SUBCOMMANDS:''${NC}
 
   ''${CYAN}updates''${NC} - Package update checking
-    count             Output just the update count (shows ? during refresh)
-    tooltip           Get formatted tooltip text for status bars
-    status            Get detailed status JSON
-    fetch             Force refresh of package data
-    list              Show available updates
-    open              Open terminal with update list (for left-click)
+    count             Output update count (󰑓 during refresh)
+    tooltip           Status bar tooltip (progress when busy, updates when idle)
+    fetch             Refresh package data in background
+    list              Show available updates interactively
+    open              Open terminal with update list (left-click action)
 
   ''${CYAN}config''${NC} - Configuration management
     list [hook]       List all hooks or items in a hook
     add <hook> <item> Add item to a config hook
     rm <hook> <item>  Remove item from a config hook
-    search <query>    Search nixpkgs for a package
     init <file> <hook> Initialize a new hook point
-    format            Format all .nix files
 
   ''${CYAN}diff''${NC} - Dotfile backup management
     list              List all backed up dotfiles
@@ -166,11 +163,10 @@ writeShellApplication {
     setup             Show how to set up managed dotfiles
 
 ''${BOLD}EXAMPLES:''${NC}
-    nixup updates count
-    nixup updates tooltip
+    nixup updates count      # For status bar text
+    nixup updates tooltip    # For status bar tooltip
     nixup config add packages ghq
-    nixup config list packages
-    nixup diff list
+    nixup config list
 
 ''${BOLD}ENVIRONMENT:''${NC}
     NIXUP_CONFIG_DIR     Config directory (default: ~/code/nixos-config)
@@ -225,72 +221,70 @@ EOF
       echo "$bar"
     }
 
+    # Write current operation status to file
     write_status() {
-      local status="$1"
-      local message="$2"
-      local progress="''${3:-0}"
-      local total="''${4:-0}"
+      local phase="$1"
+      local progress="''${2:-0}"
+      local total="''${3:-0}"
 
       local progress_bar=""
       if [[ "$total" -gt 0 ]]; then
-        progress_bar=$(make_progress_bar "$progress" "$total" 10)
+        progress_bar=$(make_progress_bar "$progress" "$total" 20)
       fi
 
       jq -n \
-        --arg status "$status" \
-        --arg message "$message" \
+        --arg phase "$phase" \
         --argjson progress "$progress" \
         --argjson total "$total" \
-        --arg progress_bar "$progress_bar" \
-        --arg timestamp "$(date -Iseconds)" \
-        '{
-          status: $status,
-          message: $message,
-          progress: $progress,
-          total: $total,
-          progress_bar: $progress_bar,
-          timestamp: $timestamp
-        }' > "$STATUS_FILE"
-    }
-
-    get_status() {
-      if [[ -f "$STATUS_FILE" ]]; then
-        cat "$STATUS_FILE"
-      else
-        echo '{"status":"idle","message":"Ready","progress":0,"total":0,"progress_bar":""}'
-      fi
+        --arg bar "$progress_bar" \
+        '{phase: $phase, progress: $progress, total: $total, bar: $bar}' > "$STATUS_FILE"
     }
 
     clear_status() {
       rm -f "$STATUS_FILE"
     }
 
-    # Generate tooltip text for status bar integration
+    # Unified tooltip: shows progress when busy, updates when idle
     get_tooltip() {
       local max_items=5
 
+      # Check if refresh is running
       if check_lock; then
-        # Currently refreshing
-        local status_json
-        status_json=$(get_status)
-        local message progress total progress_bar
-        message=$(echo "$status_json" | jq -r '.message')
-        progress=$(echo "$status_json" | jq -r '.progress')
-        total=$(echo "$status_json" | jq -r '.total')
-        progress_bar=$(echo "$status_json" | jq -r '.progress_bar // ""')
+        if [[ -f "$STATUS_FILE" ]]; then
+          local phase progress total bar
+          phase=$(jq -r '.phase // "working"' "$STATUS_FILE" 2>/dev/null)
+          progress=$(jq -r '.progress // 0' "$STATUS_FILE" 2>/dev/null)
+          total=$(jq -r '.total // 0' "$STATUS_FILE" 2>/dev/null)
+          bar=$(jq -r '.bar // ""' "$STATUS_FILE" 2>/dev/null)
 
-        echo "# refreshing"
-        if [[ -n "$progress_bar" && "$total" -gt 0 ]]; then
-          echo "$progress_bar ($progress/$total)"
+          case "$phase" in
+            fetch_index)
+              echo "Fetching package index..."
+              ;;
+            scan_installed)
+              echo "Scanning installed packages..."
+              ;;
+            check_versions)
+              if [[ "$total" -gt 0 ]]; then
+                echo "$bar"
+                echo "Checking $progress/$total"
+              else
+                echo "Comparing versions..."
+              fi
+              ;;
+            *)
+              echo "Working..."
+              ;;
+          esac
         else
-          echo "$message"
+          echo "Starting..."
         fi
         return
       fi
 
+      # Not busy - show results
       if [[ ! -f "$UPDATES_CACHE" ]]; then
-        echo "# no data"
-        echo "Run: nixup updates fetch"
+        echo "No data"
         return
       fi
 
@@ -298,21 +292,23 @@ EOF
       count=$(jq -r '.count' "$UPDATES_CACHE")
 
       if [[ "$count" -eq 0 ]]; then
-        echo "# up to date"
+        echo "Up to date"
         return
       fi
 
-      echo "# updates available"
+      echo "$count updates"
+      echo ""
 
       local shown=0
       while IFS= read -r line; do
-        echo "- $line"
+        echo "$line"
         ((shown++)) || true
       done < <(jq -r '.updates[:'"$max_items"'] | .[] | "\(.name) \(.installed) → \(.latest)"' "$UPDATES_CACHE")
 
       local remaining=$((count - shown))
       if [[ $remaining -gt 0 ]]; then
-        echo "... and $remaining others"
+        echo ""
+        echo "+$remaining more"
       fi
     }
 
@@ -365,7 +361,7 @@ EOF
       fi
 
       echo "Fetching nixpkgs package index..." >&2
-      write_status "running" "Fetching nixpkgs package index"
+      write_status "fetch_index"
       nix search "$NIXPKGS_REF" "" --json 2>/dev/null | \
         jq 'to_entries
           | map({
@@ -425,7 +421,7 @@ EOF
       fi
 
       echo "Scanning installed packages..." >&2
-      write_status "running" "Scanning installed packages"
+      write_status "scan_installed"
       local installed_json
       installed_json=$(scan_installed_packages)
       echo "$installed_json" | sponge "$INSTALLED_CACHE"
@@ -516,7 +512,7 @@ EOF
       fi
 
       echo "Comparing $total_packages packages..." >&2
-      write_status "running" "Checking versions" 0 "$total_packages"
+      write_status "check_versions" 0 "$total_packages"
 
       local updates=()
       local checked=0
@@ -534,7 +530,7 @@ EOF
         ((checked++)) || true
         if (( checked % 50 == 0 )); then
           draw_progress "$checked" "$total_packages" "$total_updates"
-          write_status "running" "Checking versions" "$checked" "$total_packages"
+          write_status "check_versions" "$checked" "$total_packages"
         fi
 
         local latest
@@ -659,11 +655,6 @@ EOF
       fi
     }
 
-    config_search() {
-      print_info "Searching nixpkgs for '$1'..."
-      nix search nixpkgs "#$1" --no-update-lock-file 2>/dev/null | head -30
-    }
-
     config_init() {
       local file="$1"
       local hook="$2"
@@ -677,12 +668,6 @@ EOF
       echo "  # @nixup:end"
       echo ""
       echo "Add this to your .nix file inside [ ] or { }"
-    }
-
-    config_format() {
-      print_info "Formatting .nix files in $CONFIG_DIR..."
-      find "$CONFIG_DIR" -name "*.nix" -exec alejandra -q {} \; 2>/dev/null
-      print_success "Formatting complete"
     }
 
     # =============================================================================
@@ -795,16 +780,15 @@ SETUPEOF
         case "$CMD" in
           count)
             if check_lock; then
-              echo "?"
+              echo "󰑓"
+            elif [[ -f "$UPDATES_CACHE" ]]; then
+              jq -r '.count' "$UPDATES_CACHE"
             else
-              [[ -f "$UPDATES_CACHE" ]] && jq -r '.count' "$UPDATES_CACHE" || echo "?"
+              echo "󰑓"
             fi
             ;;
           tooltip)
             get_tooltip
-            ;;
-          status)
-            get_status
             ;;
           fetch)
             check_updates "$FORCE_RESCAN" "$FORCE_RECHECK" "$FORCE_FETCH" >/dev/null
@@ -821,15 +805,48 @@ SETUPEOF
             ;;
           open)
             # Open terminal with update list (for left-click action)
-            terminal="''${TERMINAL:-''${TERM:-xterm}}"
-            exec "$terminal" -e nixup updates list
+            terminal="''${TERMINAL:-}"
+
+            # Detect terminal and use appropriate flags
+            case "$(basename "''${terminal:-}")" in
+              kitty)
+                exec kitty --hold -e bash -c "nixup updates list; echo; read -p 'Press Enter to close...'"
+                ;;
+              alacritty)
+                exec alacritty --hold -e bash -c "nixup updates list; echo; read -p 'Press Enter to close...'"
+                ;;
+              foot)
+                exec foot --hold bash -c "nixup updates list; echo; read -p 'Press Enter to close...'"
+                ;;
+              wezterm)
+                exec wezterm start -- bash -c "nixup updates list; echo; read -p 'Press Enter to close...'"
+                ;;
+              ghostty)
+                exec ghostty -e bash -c "nixup updates list; echo; read -p 'Press Enter to close...'"
+                ;;
+              *)
+                # Fallback: try common terminals
+                if command -v foot &>/dev/null; then
+                  exec foot --hold bash -c "nixup updates list; echo; read -p 'Press Enter to close...'"
+                elif command -v kitty &>/dev/null; then
+                  exec kitty --hold -e bash -c "nixup updates list; echo; read -p 'Press Enter to close...'"
+                elif command -v alacritty &>/dev/null; then
+                  exec alacritty --hold -e bash -c "nixup updates list; echo; read -p 'Press Enter to close...'"
+                elif [[ -n "$terminal" ]]; then
+                  exec "$terminal" -e bash -c "nixup updates list; echo; read -p 'Press Enter to close...'"
+                else
+                  print_error "No terminal found. Set \$TERMINAL environment variable."
+                  exit 1
+                fi
+                ;;
+            esac
             ;;
           *) print_error "Unknown command: $CMD"; exit 1 ;;
         esac
         ;;
 
       config)
-        [[ $# -eq 0 ]] && { echo "Usage: nixup config <list|add|rm|search|init|format>"; exit 1; }
+        [[ $# -eq 0 ]] && { echo "Usage: nixup config <list|add|rm|init>"; exit 1; }
         CMD="$1"
         shift
 
@@ -843,15 +860,10 @@ SETUPEOF
             [[ $# -lt 2 ]] && { print_error "Usage: nixup config rm <hook> <item>"; exit 1; }
             config_remove "$1" "$2"
             ;;
-          search)
-            [[ $# -lt 1 ]] && { print_error "Usage: nixup config search <query>"; exit 1; }
-            config_search "$1"
-            ;;
           init)
             [[ $# -lt 2 ]] && { print_error "Usage: nixup config init <file> <hook>"; exit 1; }
             config_init "$1" "$2"
             ;;
-          format) config_format ;;
           *) print_error "Unknown command: $CMD"; exit 1 ;;
         esac
         ;;

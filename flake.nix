@@ -64,7 +64,7 @@
           Unit.Description = "Nix package update checker";
           Service = {
             Type = "oneshot";
-            ExecStart = "${checker}/bin/nixup refresh";
+            ExecStart = "${checker}/bin/nixup updates fetch";
             Environment = [
               "XDG_CACHE_HOME=%h/.cache"
               "HOME=%h"
