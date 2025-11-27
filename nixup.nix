@@ -34,17 +34,17 @@ writeShellApplication {
     set -euo pipefail
 
     # =============================================================================
-    # Colors - only use if outputting to a terminal
+    # Colors - only use if outputting to a terminal (use tput for Nix compatibility)
     # =============================================================================
 
     if [ -t 1 ]; then
-      RED='\033[0;31m'
-      GREEN='\033[0;32m'
-      YELLOW='\033[0;33m'
-      BLUE='\033[0;34m'
-      CYAN='\033[0;36m'
-      BOLD='\033[1m'
-      NC='\033[0m'
+      RED=$(tput setaf 1)
+      GREEN=$(tput setaf 2)
+      YELLOW=$(tput setaf 3)
+      BLUE=$(tput setaf 4)
+      CYAN=$(tput setaf 6)
+      BOLD=$(tput bold)
+      NC=$(tput sgr0)
     else
       RED=""
       GREEN=""
@@ -55,10 +55,10 @@ writeShellApplication {
       NC=""
     fi
 
-    print_error() { echo -e "''${RED}error:''${NC} $1" >&2; }
-    print_success() { echo -e "''${GREEN}✓''${NC} $1"; }
-    print_info() { echo -e "''${BLUE}info:''${NC} $1"; }
-    print_warn() { echo -e "''${YELLOW}warn:''${NC} $1"; }
+    print_error() { echo "''${RED}error:''${NC} $1" >&2; }
+    print_success() { echo "''${GREEN}✓''${NC} $1"; }
+    print_info() { echo "''${BLUE}info:''${NC} $1"; }
+    print_warn() { echo "''${YELLOW}warn:''${NC} $1"; }
 
     # =============================================================================
     # Configuration
@@ -90,8 +90,39 @@ writeShellApplication {
     INSTALLED_CACHE="$CACHE_DIR/installed.json"
     NIXPKGS_CACHE="$CACHE_DIR/nixpkgs-versions.json"
     STATUS_FILE="$CACHE_DIR/status.json"
+    LOCK_FILE="$CACHE_DIR/nixup.lock"
 
     mkdir -p "$CACHE_DIR"
+
+    # =============================================================================
+    # Lock file management - prevent duplicate instances
+    # =============================================================================
+
+    acquire_lock() {
+      if [[ -f "$LOCK_FILE" ]]; then
+        local pid
+        pid=$(cat "$LOCK_FILE" 2>/dev/null || echo "")
+        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+          return 1  # Another instance is running
+        fi
+        # Stale lock file, remove it
+        rm -f "$LOCK_FILE"
+      fi
+      echo $$ > "$LOCK_FILE"
+      trap 'rm -f "$LOCK_FILE"' EXIT
+      return 0
+    }
+
+    check_lock() {
+      if [[ -f "$LOCK_FILE" ]]; then
+        local pid
+        pid=$(cat "$LOCK_FILE" 2>/dev/null || echo "")
+        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+          return 0  # Another instance is running
+        fi
+      fi
+      return 1  # No instance running
+    }
 
     TERM_WIDTH=$(tput cols 2>/dev/null || echo 80)
     BAR_WIDTH=$((TERM_WIDTH - 45))
@@ -112,9 +143,11 @@ writeShellApplication {
 
   ''${CYAN}updates''${NC} - Package update checking
     count             Output just the update count (shows ? during refresh)
-    status            Get detailed status JSON (for tooltips)
+    tooltip           Get formatted tooltip text for status bars
+    status            Get detailed status JSON
     fetch             Force refresh of package data
     list              Show available updates
+    open              Open terminal with update list (for left-click)
 
   ''${CYAN}config''${NC} - Configuration management
     list [hook]       List all hooks or items in a hook
@@ -132,13 +165,9 @@ writeShellApplication {
   ''${CYAN}dotfiles''${NC} - Dotfile configuration help
     setup             Show how to set up managed dotfiles
 
-''${BOLD}BACKWARD COMPATIBILITY:''${NC}
-    nixup count       Same as: nixup updates count
-    nixup list        Same as: nixup updates list
-    nixup refresh     Same as: nixup updates fetch
-
 ''${BOLD}EXAMPLES:''${NC}
     nixup updates count
+    nixup updates tooltip
     nixup config add packages ghq
     nixup config list packages
     nixup diff list
@@ -176,23 +205,50 @@ EOF
     # Status tracking (for status bars and frontends)
     # =============================================================================
 
+    # Generate progress bar using block characters
+    make_progress_bar() {
+      local current="$1"
+      local total="$2"
+      local width="''${3:-10}"
+
+      if [[ "$total" -eq 0 ]]; then
+        printf '%*s' "$width" "" | tr ' ' '░'
+        return
+      fi
+
+      local filled=$((current * width / total))
+      local empty=$((width - filled))
+
+      local bar=""
+      for ((i=0; i<filled; i++)); do bar+="█"; done
+      for ((i=0; i<empty; i++)); do bar+="░"; done
+      echo "$bar"
+    }
+
     write_status() {
       local status="$1"
       local message="$2"
       local progress="''${3:-0}"
       local total="''${4:-0}"
 
+      local progress_bar=""
+      if [[ "$total" -gt 0 ]]; then
+        progress_bar=$(make_progress_bar "$progress" "$total" 10)
+      fi
+
       jq -n \
         --arg status "$status" \
         --arg message "$message" \
         --argjson progress "$progress" \
         --argjson total "$total" \
+        --arg progress_bar "$progress_bar" \
         --arg timestamp "$(date -Iseconds)" \
         '{
           status: $status,
           message: $message,
           progress: $progress,
           total: $total,
+          progress_bar: $progress_bar,
           timestamp: $timestamp
         }' > "$STATUS_FILE"
     }
@@ -201,12 +257,63 @@ EOF
       if [[ -f "$STATUS_FILE" ]]; then
         cat "$STATUS_FILE"
       else
-        echo '{"status":"idle","message":"Ready","progress":0,"total":0}'
+        echo '{"status":"idle","message":"Ready","progress":0,"total":0,"progress_bar":""}'
       fi
     }
 
     clear_status() {
       rm -f "$STATUS_FILE"
+    }
+
+    # Generate tooltip text for status bar integration
+    get_tooltip() {
+      local max_items=5
+
+      if check_lock; then
+        # Currently refreshing
+        local status_json
+        status_json=$(get_status)
+        local message progress total progress_bar
+        message=$(echo "$status_json" | jq -r '.message')
+        progress=$(echo "$status_json" | jq -r '.progress')
+        total=$(echo "$status_json" | jq -r '.total')
+        progress_bar=$(echo "$status_json" | jq -r '.progress_bar // ""')
+
+        echo "# refreshing"
+        if [[ -n "$progress_bar" && "$total" -gt 0 ]]; then
+          echo "$progress_bar ($progress/$total)"
+        else
+          echo "$message"
+        fi
+        return
+      fi
+
+      if [[ ! -f "$UPDATES_CACHE" ]]; then
+        echo "# no data"
+        echo "Run: nixup updates fetch"
+        return
+      fi
+
+      local count
+      count=$(jq -r '.count' "$UPDATES_CACHE")
+
+      if [[ "$count" -eq 0 ]]; then
+        echo "# up to date"
+        return
+      fi
+
+      echo "# updates available"
+
+      local shown=0
+      while IFS= read -r line; do
+        echo "- $line"
+        ((shown++)) || true
+      done < <(jq -r '.updates[:'"$max_items"'] | .[] | "\(.name) \(.installed) → \(.latest)"' "$UPDATES_CACHE")
+
+      local remaining=$((count - shown))
+      if [[ $remaining -gt 0 ]]; then
+        echo "... and $remaining others"
+      fi
     }
 
     # =============================================================================
@@ -383,6 +490,12 @@ EOF
       local force_recheck="''${2:-false}"
       local force_fetch="''${3:-false}"
 
+      # Try to acquire lock - exit if another instance is running
+      if ! acquire_lock; then
+        print_warn "Another nixup instance is already running"
+        return 1
+      fi
+
       fetch_nixpkgs_index "$force_fetch"
       local installed_json
       installed_json=$(get_installed_packages "$force_rescan")
@@ -403,7 +516,7 @@ EOF
       fi
 
       echo "Comparing $total_packages packages..." >&2
-      write_status "running" "Comparing package versions" 0 "$total_packages"
+      write_status "running" "Checking versions" 0 "$total_packages"
 
       local updates=()
       local checked=0
@@ -421,7 +534,7 @@ EOF
         ((checked++)) || true
         if (( checked % 50 == 0 )); then
           draw_progress "$checked" "$total_packages" "$total_updates"
-          write_status "running" "Comparing versions ($checked/$total_packages)" "$checked" "$total_packages"
+          write_status "running" "Checking versions" "$checked" "$total_packages"
         fi
 
         local latest
@@ -681,16 +794,14 @@ SETUPEOF
 
         case "$CMD" in
           count)
-            if [[ -f "$STATUS_FILE" ]]; then
-              status=$(jq -r '.status' "$STATUS_FILE")
-              if [[ "$status" == "running" ]]; then
-                echo "?"
-              else
-                [[ -f "$UPDATES_CACHE" ]] && jq -r '.count' "$UPDATES_CACHE" || echo "?"
-              fi
+            if check_lock; then
+              echo "?"
             else
               [[ -f "$UPDATES_CACHE" ]] && jq -r '.count' "$UPDATES_CACHE" || echo "?"
             fi
+            ;;
+          tooltip)
+            get_tooltip
             ;;
           status)
             get_status
@@ -707,6 +818,11 @@ SETUPEOF
               echo "Updates available ($count):"
               echo "$result" | jq -r '.updates[] | "  \(.name): \(.installed) → \(.latest)"'
             fi
+            ;;
+          open)
+            # Open terminal with update list (for left-click action)
+            terminal="''${TERMINAL:-''${TERM:-xterm}}"
+            exec "$terminal" -e nixup updates list
             ;;
           *) print_error "Unknown command: $CMD"; exit 1 ;;
         esac
@@ -762,33 +878,6 @@ SETUPEOF
           setup) dotfiles_setup ;;
           *) print_error "Unknown command: $CMD"; exit 1 ;;
         esac
-        ;;
-
-      # Backward compatibility
-      count)
-        if [[ -f "$STATUS_FILE" ]]; then
-          status=$(jq -r '.status' "$STATUS_FILE")
-          if [[ "$status" == "running" ]]; then
-            echo "?"
-          else
-            [[ -f "$UPDATES_CACHE" ]] && jq -r '.count' "$UPDATES_CACHE" || echo "?"
-          fi
-        else
-          [[ -f "$UPDATES_CACHE" ]] && jq -r '.count' "$UPDATES_CACHE" || echo "?"
-        fi
-        ;;
-      list)
-        result=$(check_updates false false false)
-        count=$(echo "$result" | jq -r '.count')
-        if [[ "$count" -eq 0 ]]; then
-          echo "All packages are up to date!"
-        else
-          echo "Updates available ($count):"
-          echo "$result" | jq -r '.updates[] | "  \(.name): \(.installed) → \(.latest)"'
-        fi
-        ;;
-      refresh|fetch)
-        check_updates true true true >/dev/null
         ;;
 
       -h|--help|help) usage ;;
