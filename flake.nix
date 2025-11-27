@@ -18,17 +18,11 @@
     in {
       default = checker;
       nixup = checker;
-      nix-update-popup = pkgs.callPackage ./nix-update-popup.nix {
-        nixup = checker;
-        yad = pkgs.yad;
-        zenity = pkgs.zenity;
-      };
     });
 
     # Overlay for easy integration into NixOS configs
     overlays.default = final: prev: {
       nixup = self.packages.${final.system}.nixup;
-      nix-update-popup = self.packages.${final.system}.nix-update-popup;
     };
 
     # Home Manager module
@@ -40,7 +34,6 @@
     }: let
       cfg = config.services.nixup;
       checker = self.packages.${pkgs.system}.nixup;
-      popup = self.packages.${pkgs.system}.nix-update-popup;
     in {
       options.services.nixup = {
         enable = lib.mkEnableOption "nixup service";
@@ -65,7 +58,7 @@
       };
 
       config = lib.mkIf cfg.enable {
-        home.packages = [checker popup];
+        home.packages = [checker];
 
         systemd.user.services.nixup = {
           Unit.Description = "Nix package update checker";
