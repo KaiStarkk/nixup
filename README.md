@@ -118,30 +118,76 @@ nixup config format
 
 ### Dotfile Management
 
-If you configure Home Manager to backup files it overwrites, nixup helps you manage them.
+Manage backups for **mutable** dotfiles—config files that applications need to modify at runtime (e.g., Cursor settings, GUI app preferences).
 
-First, configure Home Manager to use a backup directory:
+> **Note**: This is different from `home.backupFileExtension`, which handles conflicts when Home Manager creates symlinks. The `nixup diff` feature works with real files that apps can write to, using a custom backup system.
+
+#### Setup
+
+Add a helper function to your Home Manager config that writes real files (not symlinks) and creates timestamped backups when your Nix config changes:
+
 ```nix
-home.file.".config/kitty/kitty.conf" = {
-  source = ./kitty.conf;
-  force = true;
-};
+{ config, lib, pkgs, ... }:
 
-# Enable backups for all managed files
-home.backupFileExtension = "backup";
+let
+  # Writes to ~/.config/<relPath>, backs up user modifications to ~/.config-backups/
+  smartWriteConfig = relPath: content:
+    lib.hm.dag.entryAfter ["writeBoundary"] ''
+      XDG_CONFIG_HOME="''${XDG_CONFIG_HOME:-$HOME/.config}"
+      BACKUP_DIR="$HOME/.config-backups"
+      target="$XDG_CONFIG_HOME/${relPath}"
+      mkdir -p "$(dirname "$target")"
+      mkdir -p "$BACKUP_DIR/$(dirname "${relPath}")"
+
+      new_content=$(cat <<'NIXCONTENT'
+      ${content}
+      NIXCONTENT
+      )
+
+      if [ -f "$target" ]; then
+        current_content=$(cat "$target")
+        if [ "$current_content" != "$new_content" ]; then
+          timestamp=$(date +%Y%m%d%H%M%S)
+          cp "$target" "$BACKUP_DIR/${relPath}.backup.$timestamp"
+        fi
+      fi
+
+      printf '%s' "$new_content" > "$target"
+    '';
+in {
+  # Example: Cursor editor settings (mutable - Cursor writes to this file)
+  home.activation.initCursorSettings =
+    smartWriteConfig "Cursor/User/settings.json"
+    (builtins.readFile ./dotfiles/cursor/settings.json);
+
+  # Example: App preferences (mutable - app writes to this file)
+  home.activation.initAppPrefs =
+    smartWriteConfig "myapp/config.json"
+    (builtins.toJSON { theme = "dark"; fontSize = 14; });
+}
 ```
 
-Or set a custom backup directory in your Home Manager config. Then manage backups:
+#### When to use this vs symlinks
+
+| Method | Use case |
+|--------|----------|
+| `xdg.configFile.*` | Immutable configs you control entirely |
+| `smartWriteConfig` | Mutable configs that apps modify at runtime |
+
+#### Commands
 
 ```bash
 # List backed up dotfiles
 nixup diff list
 
-# Restore a dotfile
-nixup diff restore kitty/kitty.conf
+# Show what changed
+nixup diff show Cursor/User/settings.json
 
-# Show diff (for manual merge)
-nixup diff restore kitty/kitty.conf --merge
+# Restore a previous version
+nixup diff restore Cursor/User/settings.json
+
+# Interactive restore with diff preview
+nixup diff restore Cursor/User/settings.json --merge
 
 # Clear all backups
 nixup diff clear
@@ -211,7 +257,7 @@ Waybar example:
 
 **Config**: Uses simple comment markers (`# @nixup:<hook-name> ... # @nixup:end`) to identify manageable sections. Changes are made in-place and formatted with alejandra.
 
-**Diff**: Monitors Home Manager's backup directory (`~/.config-backups/`) and provides commands to view and restore previous versions.
+**Diff**: Monitors `~/.config-backups/` for timestamped backups created by custom mutable dotfile activation scripts, providing commands to view diffs and restore previous versions.
 
 ## License
 
