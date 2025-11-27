@@ -108,12 +108,6 @@ nixup config list packages
 
 # Remove packages
 nixup config rm packages ghq
-
-# Search before adding
-nixup config search lazygit
-
-# Format all .nix files
-nixup config format
 ```
 
 ### Dotfile Management
@@ -180,13 +174,10 @@ in {
 # List backed up dotfiles
 nixup diff list
 
-# Show what changed
-nixup diff show Cursor/User/settings.json
-
-# Restore a previous version
+# Show what changed (diff between your backup and current nix config)
 nixup diff restore Cursor/User/settings.json
 
-# Interactive restore with diff preview
+# Merge: restore your changes AND update the nix config source file
 nixup diff restore Cursor/User/settings.json --merge
 
 # Clear all backups
@@ -218,23 +209,24 @@ NIXUP_CONFIG_DIR=~/my-nixos-config nixup config list
 Works with HyprPanel, Waybar, Polybar, etc:
 
 ```bash
-nixup updates count    # outputs: 63 (or ? during refresh)
+nixup updates count    # outputs: 63 (or 󰑓 during refresh)
 nixup updates tooltip  # formatted tooltip with package list
 nixup updates open     # opens terminal with update list (uses $TERMINAL)
 ```
 
 Tooltip output:
 ```
-# updates available
-- hyprbars 0.1 → 0.52.0
-- qtbase 5.15.18 → 6.10.1
-... and 4 others
+9 updates
+
+hyprbars 0.1 → 0.52.0
+qtbase 5.15.18 → 6.10.1
++4 more
 ```
 
 During refresh, tooltip shows progress:
 ```
-# refreshing
-████░░░░░░ (250/500)
+████████████░░░░░░░░
+Checking 250/500
 ```
 
 Waybar example:

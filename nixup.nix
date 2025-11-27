@@ -700,7 +700,7 @@ EOF
       local file="''${1:-}"
       local merge="''${2:-}"
 
-      [[ -z "$file" ]] && { print_error "Usage: nixup diff restore <dotfile>"; return 1; }
+      [[ -z "$file" ]] && { print_error "Usage: nixup diff restore <dotfile> [--merge]"; return 1; }
 
       local latest
       latest=$(find "$BACKUP_DIR" -name "$(basename "$file").backup.*" 2>/dev/null | sort -r | head -1)
@@ -715,15 +715,38 @@ EOF
       [[ -z "$target" ]] && { print_error "Cannot find $file"; return 1; }
 
       if [[ "$merge" == "--merge" ]]; then
-        print_info "Showing diff (- = backup, + = current):"
+        # Merge: restore backup AND update nix config source
+        print_info "Showing diff (- = backup/your changes, + = nix config):"
+        diff -u "$latest" "$target" || true
+        echo ""
+
+        # Restore to runtime location
+        cp "$latest" "$target"
+        print_success "Restored $file"
+
+        # Find and update the source file in nix config
+        local basename_file
+        basename_file=$(basename "$file")
+        local source_file
+        source_file=$(find "$CONFIG_DIR" -type f -name "$basename_file" 2>/dev/null | grep -v '.backup' | head -1)
+
+        if [[ -n "$source_file" ]]; then
+          cp "$latest" "$source_file"
+          print_success "Updated nix config: ''${source_file#"$CONFIG_DIR/"}"
+          print_info "Run nixos-rebuild to apply permanently"
+        else
+          print_warn "Could not find source file in $CONFIG_DIR"
+          print_warn "Manually copy your changes to persist them"
+        fi
+      else
+        # Default: just show diff
+        print_info "Showing diff (- = backup/your changes, + = nix config):"
         diff -u "$latest" "$target" || true
         echo ""
         print_warn "Backup: $latest"
         print_warn "Current: $target"
-      else
-        cp "$latest" "$target"
-        print_success "Restored $file"
-        print_warn "Will be overwritten on next nixos-rebuild"
+        echo ""
+        print_info "Use --merge to restore backup and update nix config"
       fi
     }
 
