@@ -12,6 +12,9 @@
   diffutils,
   findutils,
 }:
+let
+  dotfilesSetupDoc = builtins.readFile ./dotfiles-setup.txt;
+in
 writeShellApplication {
   name = "nixup";
   runtimeInputs = [
@@ -125,6 +128,9 @@ writeShellApplication {
     list              List all backed up dotfiles
     restore <file>    Restore a backed up dotfile
     clear             Remove all backups
+
+  ''${CYAN}dotfiles''${NC} - Dotfile configuration help
+    setup             Show how to set up managed dotfiles
 
 ''${BOLD}BACKWARD COMPATIBILITY:''${NC}
     nixup count       Same as: nixup updates count
@@ -635,6 +641,16 @@ EOF
     }
 
     # =============================================================================
+    # Dotfiles setup guide
+    # =============================================================================
+
+    dotfiles_setup() {
+      cat <<'SETUPEOF'
+${dotfilesSetupDoc}
+SETUPEOF
+    }
+
+    # =============================================================================
     # CLI Router
     # =============================================================================
 
@@ -733,6 +749,17 @@ EOF
           list) diff_list ;;
           restore) diff_restore "$@" ;;
           clear) diff_clear ;;
+          *) print_error "Unknown command: $CMD"; exit 1 ;;
+        esac
+        ;;
+
+      dotfiles)
+        [[ $# -eq 0 ]] && { echo "Usage: nixup dotfiles <setup>"; exit 1; }
+        CMD="$1"
+        shift
+
+        case "$CMD" in
+          setup) dotfiles_setup ;;
           *) print_error "Unknown command: $CMD"; exit 1 ;;
         esac
         ;;
