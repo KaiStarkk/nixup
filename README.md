@@ -118,7 +118,20 @@ nixup config format
 
 ### Dotfile Management
 
-Home Manager backs up files it overwrites to `~/.config-backups/`. nixup helps you manage them:
+If you configure Home Manager to backup files it overwrites, nixup helps you manage them.
+
+First, configure Home Manager to use a backup directory:
+```nix
+home.file.".config/kitty/kitty.conf" = {
+  source = ./kitty.conf;
+  force = true;
+};
+
+# Enable backups for all managed files
+home.backupFileExtension = "backup";
+```
+
+Or set a custom backup directory in your Home Manager config. Then manage backups:
 
 ```bash
 # List backed up dotfiles
@@ -159,7 +172,23 @@ NIXUP_CONFIG_DIR=~/my-nixos-config nixup config list
 Works with HyprPanel, Waybar, Polybar, etc:
 
 ```bash
-nixup updates count  # outputs: 63
+nixup updates count    # outputs: 63 (or ? during refresh)
+nixup updates tooltip  # formatted tooltip with package list
+nixup updates open     # opens terminal with update list (uses $TERMINAL)
+```
+
+Tooltip output:
+```
+# updates available
+- hyprbars 0.1 → 0.52.0
+- qtbase 5.15.18 → 6.10.1
+... and 4 others
+```
+
+During refresh, tooltip shows progress:
+```
+# refreshing
+████░░░░░░ (250/500)
 ```
 
 Waybar example:
@@ -167,21 +196,13 @@ Waybar example:
 {
   "custom/updates": {
     "exec": "nixup updates count",
+    "exec-on-event": false,
     "interval": 3600,
     "format": " {}",
-    "on-click": "kitty -e nixup updates list"
+    "tooltip-exec": "nixup updates tooltip",
+    "on-click": "nixup updates open"
   }
 }
-```
-
-## Backward Compatibility
-
-Legacy commands still work:
-
-```bash
-nixup count      # Same as: nixup updates count
-nixup list       # Same as: nixup updates list
-nixup refresh    # Same as: nixup updates fetch --refresh
 ```
 
 ## How It Works
