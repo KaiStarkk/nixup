@@ -81,6 +81,7 @@ writeShellApplication {
     DEFAULT_EXCLUDE+="|setup-hooks*|acl-*|attr-*|bzip2-*|xz-*|zlib-*|zstd-*"
     DEFAULT_EXCLUDE+="|openssl-*|libffi-*|ncurses-*|readline-*"
     DEFAULT_EXCLUDE+="|*-lib|*-dev|*-doc|*-man|*-info|*-debug|*-hook"
+    DEFAULT_EXCLUDE+="|polkit-qt-1|hyprbars"
     EXCLUDE_PATTERNS=''${NIX_UPDATE_EXCLUDE:-"$DEFAULT_EXCLUDE"}
 
     DEFAULT_VERSION_SUFFIXES="lib|bin|dev|out|doc|man|info|debug|terminfo|py|nc|pam|data|npm-deps|only-plugins-qml|fish-completions"
@@ -364,11 +365,28 @@ EOF
       write_status "fetch_index"
       nix search "$NIXPKGS_REF" "" --json 2>/dev/null | \
         jq 'to_entries
-          | map({
-              key: (.key | split(".") | last),
-              value: .value.version,
-              depth: (.key | split(".") | length)
-            })
+          | map(
+              # Extract package name, preserving version prefixes like qt5, python3Packages
+              .key as $fullkey |
+              ($fullkey | split(".")) as $parts |
+              ($parts | last) as $basename |
+              # Check if parent is a version prefix (qt5, python39, etc)
+              (if ($parts | length) > 3 then
+                ($parts[-2] // "") as $parent |
+                if ($parent | test("^(qt[0-9]|python[0-9]+|lua[0-9]+|php[0-9]+|ruby_[0-9_]+)")) then
+                  $parent + "." + $basename
+                else
+                  $basename
+                end
+              else
+                $basename
+              end) as $key |
+              {
+                key: $key,
+                value: .value.version,
+                depth: ($parts | length)
+              }
+            )
           | group_by(.key)
           | map(sort_by(.depth) | first | {key: .key, value: .value})
           | from_entries' | \
@@ -481,6 +499,56 @@ EOF
     # Main update check
     # =============================================================================
 
+    # Check if an update is a false positive due to versioned variants
+    is_versioned_variant() {
+      local name="$1"
+      local installed_version="$2"
+      local latest_version="$3"
+
+      # Extract major version from installed version
+      local major_version=""
+      if [[ "$installed_version" =~ ^([0-9]+)\. ]]; then
+        major_version="''${BASH_REMATCH[1]}"
+      elif [[ "$installed_version" =~ ^([0-9]+)$ ]]; then
+        major_version="$installed_version"
+      fi
+
+      [[ -z "$major_version" ]] && return 1
+
+      # Check if latest version has a different major version
+      local latest_major=""
+      if [[ "$latest_version" =~ ^([0-9]+)\. ]]; then
+        latest_major="''${BASH_REMATCH[1]}"
+      elif [[ "$latest_version" =~ ^([0-9]+)$ ]]; then
+        latest_major="$latest_version"
+      fi
+
+      # If major versions are the same, this is not a versioned variant issue
+      [[ "$major_version" == "$latest_major" ]] && return 1
+
+      # Check if a versioned variant exists in nixpkgs (e.g., tesseract4)
+      local versioned_name="''${name}''${major_version}"
+      local versioned_version
+      versioned_version=$(get_latest_version "$versioned_name")
+
+      # If versioned variant exists and matches installed version, it's a false positive
+      if [[ -n "$versioned_version" && "$versioned_version" == "$installed_version" ]]; then
+        return 0
+      fi
+
+      # Check for version-prefixed variants (e.g., qt5.qtbase for qt5 packages)
+      # Common patterns: qt5, qt4, python39, lua54, etc.
+      for prefix in "qt$major_version" "python$major_version" "lua$major_version" "php$major_version"; do
+        versioned_name="''${prefix}.''${name}"
+        versioned_version=$(get_latest_version "$versioned_name")
+        if [[ -n "$versioned_version" && "$versioned_version" == "$installed_version" ]]; then
+          return 0
+        fi
+      done
+
+      return 1
+    }
+
     check_updates() {
       local force_rescan="''${1:-false}"
       local force_recheck="''${2:-false}"
@@ -538,6 +606,11 @@ EOF
         [[ -z "$latest" ]] && continue
 
         if version_less_than "$version" "$latest"; then
+          # Skip if this is a versioned variant (e.g., tesseract4 vs tesseract5)
+          if is_versioned_variant "$name" "$version" "$latest"; then
+            continue
+          fi
+
           ((total_updates++)) || true
           updates+=("{\"name\":\"$name\",\"installed\":\"$version\",\"latest\":\"$latest\"}")
         fi
@@ -621,6 +694,40 @@ EOF
       sed -i "''${start_line},''${end_line}{/^[[:space:]]*''${item}[[:space:]]*\$/d}" "$file"
       print_success "Removed '$item' from '$hook'"
       alejandra -q "$file" 2>/dev/null || true
+    }
+
+    config_set() {
+      local hook="$1"
+      local value="$2"
+      local file
+      file=$(find_hook_file "$hook")
+
+      if [[ -z "$file" ]]; then
+        print_error "Hook '$hook' not found"
+        echo "Available hooks:"
+        find_hooks | sed 's/^/  /'
+        return 1
+      fi
+
+      local start_line end_line indent
+      start_line=$(grep -n "# @nixup:$hook\$" "$file" | cut -d: -f1)
+      end_line=$(awk "NR>$start_line && /# @nixup:end/{print NR; exit}" "$file")
+      indent=$(sed -n "''${start_line}p" "$file" | sed 's/\(^[[:space:]]*\).*/\1/')
+
+      # Delete lines between start and end (exclusive), then insert new value
+      sed -i "$((start_line+1)),$((end_line-1))d" "$file"
+      sed -i "''${start_line}a\\''${indent}$value" "$file"
+
+      print_success "Set '$hook' to '$value'"
+      alejandra -q "$file" 2>/dev/null || true
+    }
+
+    config_get() {
+      local hook="$1"
+      local file
+      file=$(find_hook_file "$hook")
+      [[ -z "$file" ]] && return 1
+      get_hook_items "$hook" | head -1
     }
 
     config_list() {
@@ -869,7 +976,7 @@ SETUPEOF
         ;;
 
       config)
-        [[ $# -eq 0 ]] && { echo "Usage: nixup config <list|add|rm|init>"; exit 1; }
+        [[ $# -eq 0 ]] && { echo "Usage: nixup config <list|add|rm|set|get|init>"; exit 1; }
         CMD="$1"
         shift
 
@@ -882,6 +989,14 @@ SETUPEOF
           rm|remove)
             [[ $# -lt 2 ]] && { print_error "Usage: nixup config rm <hook> <item>"; exit 1; }
             config_remove "$1" "$2"
+            ;;
+          set)
+            [[ $# -lt 2 ]] && { print_error "Usage: nixup config set <hook> <value>"; exit 1; }
+            config_set "$1" "$2"
+            ;;
+          get)
+            [[ $# -lt 1 ]] && { print_error "Usage: nixup config get <hook>"; exit 1; }
+            config_get "$1"
             ;;
           init)
             [[ $# -lt 2 ]] && { print_error "Usage: nixup config init <file> <hook>"; exit 1; }
