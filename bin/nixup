@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+# nixup - NixOS Management Tool
+# Main entry point that sources modular components
+
+set -euo pipefail
+
+# Resolve the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+LIB_DIR="${SCRIPT_DIR}/../lib"
+
+# Source all modules
+source "${LIB_DIR}/core.sh"
+source "${LIB_DIR}/help.sh"
+source "${LIB_DIR}/progress.sh"
+source "${LIB_DIR}/packages.sh"
+source "${LIB_DIR}/updates.sh"
+source "${LIB_DIR}/config.sh"
+source "${LIB_DIR}/diff.sh"
+
+# =============================================================================
+# CLI Router
+# =============================================================================
+
+[[ $# -eq 0 ]] && { usage; exit 0; }
+
+SUBCOMMAND="$1"
+shift
+
+case "$SUBCOMMAND" in
+  updates)
+    [[ $# -eq 0 ]] && { echo "Usage: nixup updates <count|fetch|list>"; exit 1; }
+    CMD="$1"
+    shift
+
+    FORCE_RESCAN=false
+    FORCE_RECHECK=false
+    FORCE_FETCH=false
+
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --rescan) FORCE_RESCAN=true; shift ;;
+        --recheck) FORCE_RECHECK=true; shift ;;
+        --refresh) FORCE_RESCAN=true; FORCE_RECHECK=true; shift ;;
+        --fetch) FORCE_FETCH=true; shift ;;
+        *) print_error "Unknown option: $1"; exit 1 ;;
+      esac
+    done
+
+    case "$CMD" in
+      count)
+        if check_lock; then
+          echo "󰑓"
+        elif [[ -f "$UPDATES_CACHE" ]]; then
+          jq -r '.count' "$UPDATES_CACHE"
+        else
+          echo "󰑓"
+        fi
+        ;;
+      tooltip)
+        get_tooltip
+        ;;
+      fetch)
+        check_updates "$FORCE_RESCAN" "$FORCE_RECHECK" "$FORCE_FETCH" >/dev/null
+        ;;
+      list)
+        result=$(check_updates "$FORCE_RESCAN" "$FORCE_RECHECK" "$FORCE_FETCH")
+        count=$(echo "$result" | jq -r '.count')
+        if [[ "$count" -eq 0 ]]; then
+          echo "All packages are up to date!"
+        else
+          echo "Updates available ($count):"
+          echo "$result" | jq -r '.updates[] | "  \(.name): \(.installed) → \(.latest)"'
+        fi
+        ;;
+      open)
+        # Open terminal with update list (for left-click action)
+        terminal="${TERMINAL:-}"
+
+        # Detect terminal and use appropriate flags
+        case "$(basename "${terminal:-}")" in
+          kitty)
+            exec kitty --hold -e bash -c "nixup updates list; echo; read -p 'Press Enter to close...'"
+            ;;
+          alacritty)
+            exec alacritty --hold -e bash -c "nixup updates list; echo; read -p 'Press Enter to close...'"
+            ;;
+          foot)
+            exec foot --hold bash -c "nixup updates list; echo; read -p 'Press Enter to close...'"
+            ;;
+          wezterm)
+            exec wezterm start -- bash -c "nixup updates list; echo; read -p 'Press Enter to close...'"
+            ;;
+          ghostty)
+            exec ghostty -e bash -c "nixup updates list; echo; read -p 'Press Enter to close...'"
+            ;;
+          *)
+            # Fallback: try common terminals
+            if command -v foot &>/dev/null; then
+              exec foot --hold bash -c "nixup updates list; echo; read -p 'Press Enter to close...'"
+            elif command -v kitty &>/dev/null; then
+              exec kitty --hold -e bash -c "nixup updates list; echo; read -p 'Press Enter to close...'"
+            elif command -v alacritty &>/dev/null; then
+              exec alacritty --hold -e bash -c "nixup updates list; echo; read -p 'Press Enter to close...'"
+            elif [[ -n "$terminal" ]]; then
+              exec "$terminal" -e bash -c "nixup updates list; echo; read -p 'Press Enter to close...'"
+            else
+              print_error "No terminal found. Set \$TERMINAL environment variable."
+              exit 1
+            fi
+            ;;
+        esac
+        ;;
+      *) print_error "Unknown command: $CMD"; exit 1 ;;
+    esac
+    ;;
+
+  config)
+    [[ $# -eq 0 ]] && { echo "Usage: nixup config <list|add|rm|set|get|init>"; exit 1; }
+    CMD="$1"
+    shift
+
+    case "$CMD" in
+      list) config_list "${1:-}" ;;
+      add)
+        [[ $# -lt 2 ]] && { print_error "Usage: nixup config add <hook> <item>"; exit 1; }
+        config_add "$1" "$2"
+        ;;
+      rm|remove)
+        [[ $# -lt 2 ]] && { print_error "Usage: nixup config rm <hook> <item>"; exit 1; }
+        config_remove "$1" "$2"
+        ;;
+      set)
+        [[ $# -lt 2 ]] && { print_error "Usage: nixup config set <hook> <value>"; exit 1; }
+        config_set "$1" "$2"
+        ;;
+      get)
+        [[ $# -lt 1 ]] && { print_error "Usage: nixup config get <hook>"; exit 1; }
+        config_get "$1"
+        ;;
+      init)
+        [[ $# -lt 2 ]] && { print_error "Usage: nixup config init <file> <hook>"; exit 1; }
+        config_init "$1" "$2"
+        ;;
+      *) print_error "Unknown command: $CMD"; exit 1 ;;
+    esac
+    ;;
+
+  diff)
+    [[ $# -eq 0 ]] && { echo "Usage: nixup diff <list|restore|clear>"; exit 1; }
+    CMD="$1"
+    shift
+
+    case "$CMD" in
+      list) diff_list ;;
+      restore) diff_restore "$@" ;;
+      clear) diff_clear ;;
+      *) print_error "Unknown command: $CMD"; exit 1 ;;
+    esac
+    ;;
+
+  dotfiles)
+    [[ $# -eq 0 ]] && { echo "Usage: nixup dotfiles <setup>"; exit 1; }
+    CMD="$1"
+    shift
+
+    case "$CMD" in
+      setup) dotfiles_setup ;;
+      *) print_error "Unknown command: $CMD"; exit 1 ;;
+    esac
+    ;;
+
+  -h|--help|help) usage ;;
+
+  *) print_error "Unknown command: $SUBCOMMAND"; usage; exit 1 ;;
+esac
