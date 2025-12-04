@@ -53,9 +53,8 @@ case "$SUBCOMMAND" in
         ;;
       list)
         echo "Filter modes:"
+        current=$(get_filter_mode)
         for i in "${!FILTER_MODE_NAMES[@]}"; do
-          local current
-          current=$(get_filter_mode)
           if [[ "$i" -eq "$current" ]]; then
             echo "  [$i] ${FILTER_MODE_NAMES[$i]} (current)"
           else
