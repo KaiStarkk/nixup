@@ -74,6 +74,10 @@ clear_status() {
 # Unified tooltip: shows progress when busy, updates when idle
 get_tooltip() {
   local max_items=5
+  local mode
+  mode=$(get_filter_mode)
+  local mode_name
+  mode_name=$(get_filter_mode_name "$mode")
 
   # Check if refresh is running
   if check_lock; then
@@ -111,15 +115,24 @@ get_tooltip() {
 
   # Not busy - show results
   if [[ ! -f "$UPDATES_CACHE" ]]; then
+    echo "[$mode_name]"
     echo "No data"
     return
   fi
 
+  # Get filtered updates based on current mode
+  local filtered_json
+  filtered_json=$(filter_updates_by_mode "$mode")
   local count
-  count=$(jq -r '.count' "$UPDATES_CACHE")
+  count=$(echo "$filtered_json" | jq -r '.count')
+
+  # Show mode header
+  echo "[$mode_name]"
 
   if [[ "$count" -eq 0 ]]; then
     echo "Up to date"
+    echo ""
+    echo "Scroll to change mode"
     return
   fi
 
@@ -130,11 +143,14 @@ get_tooltip() {
   while IFS= read -r line; do
     echo "$line"
     ((shown++)) || true
-  done < <(jq -r '.updates[:'"$max_items"'] | .[] | "\(.name) \(.installed) → \(.latest)"' "$UPDATES_CACHE")
+  done < <(echo "$filtered_json" | jq -r '.updates[:'"$max_items"'] | .[] | "\(.name) \(.installed) → \(.latest)"')
 
   local remaining=$((count - shown))
   if [[ $remaining -gt 0 ]]; then
     echo ""
     echo "+$remaining more"
   fi
+
+  echo ""
+  echo "Scroll to change mode"
 }

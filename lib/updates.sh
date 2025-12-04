@@ -143,6 +143,8 @@ check_updates() {
   local updates=()
   local checked=0
   local total_updates=0
+  local mode
+  mode=$(get_filter_mode)
   declare -A checked_packages
 
   while IFS= read -r pkg_json; do
@@ -180,4 +182,50 @@ check_updates() {
   save_results "$checked" "$total_packages" "$total_updates" updates
   clear_status
   cat "$UPDATES_CACHE"
+}
+
+# Filter updates based on current mode and return filtered JSON
+filter_updates_by_mode() {
+  local mode="${1:-$(get_filter_mode)}"
+
+  if [[ ! -f "$UPDATES_CACHE" ]]; then
+    echo '{"count":0,"updates":[]}'
+    return
+  fi
+
+  local all_updates
+  all_updates=$(cat "$UPDATES_CACHE")
+
+  # For modes 2 and 3, return as-is (mode 3 should have been fetched without exclusions)
+  if [[ "$mode" -ge 2 ]]; then
+    echo "$all_updates"
+    return
+  fi
+
+  # For modes 0 and 1, filter by allowlist
+  # Pre-cache the allowlist
+  local allowlist_file="$CACHE_DIR/allowlist-mode-$mode.txt"
+  if [[ ! -f "$allowlist_file" ]] || [[ $(stat -c %Y "$allowlist_file" 2>/dev/null || echo 0) -lt $(($(date +%s) - 300)) ]]; then
+    get_package_allowlist "$mode" > "$allowlist_file"
+  fi
+
+  # Filter updates using jq
+  local filtered
+  filtered=$(echo "$all_updates" | jq --slurpfile allowlist <(cat "$allowlist_file" | jq -R . | jq -s .) '
+    .updates as $updates |
+    ($allowlist[0] | map(ascii_downcase)) as $allowed |
+    .updates |= [.[] | select(
+      (.name | ascii_downcase) as $name |
+      any($allowed[]; . as $a | ($name == $a) or ($name | startswith($a + "-")))
+    )] |
+    .count = (.updates | length)
+  ')
+
+  echo "$filtered"
+}
+
+# Get count for current filter mode
+get_filtered_count() {
+  local mode="${1:-$(get_filter_mode)}"
+  filter_updates_by_mode "$mode" | jq -r '.count'
 }

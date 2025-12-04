@@ -27,6 +27,46 @@ SUBCOMMAND="$1"
 shift
 
 case "$SUBCOMMAND" in
+  mode)
+    [[ $# -eq 0 ]] && { echo "Usage: nixup mode <get|set|cycle|list>"; exit 1; }
+    CMD="$1"
+    shift
+
+    case "$CMD" in
+      get)
+        get_filter_mode_name
+        ;;
+      set)
+        [[ $# -lt 1 ]] && { print_error "Usage: nixup mode set <0-3>"; exit 1; }
+        if [[ "$1" =~ ^[0-3]$ ]]; then
+          set_filter_mode "$1"
+          get_filter_mode_name "$1"
+        else
+          print_error "Mode must be 0-3"
+          exit 1
+        fi
+        ;;
+      cycle)
+        direction="${1:-up}"
+        new_mode=$(cycle_filter_mode "$direction")
+        get_filter_mode_name "$new_mode"
+        ;;
+      list)
+        echo "Filter modes:"
+        for i in "${!FILTER_MODE_NAMES[@]}"; do
+          local current
+          current=$(get_filter_mode)
+          if [[ "$i" -eq "$current" ]]; then
+            echo "  [$i] ${FILTER_MODE_NAMES[$i]} (current)"
+          else
+            echo "  [$i] ${FILTER_MODE_NAMES[$i]}"
+          fi
+        done
+        ;;
+      *) print_error "Unknown command: $CMD"; exit 1 ;;
+    esac
+    ;;
+
   updates)
     [[ $# -eq 0 ]] && { echo "Usage: nixup updates <count|fetch|list>"; exit 1; }
     CMD="$1"
@@ -51,7 +91,7 @@ case "$SUBCOMMAND" in
         if check_lock; then
           echo "󰑓"
         elif [[ -f "$UPDATES_CACHE" ]]; then
-          jq -r '.count' "$UPDATES_CACHE"
+          get_filtered_count
         else
           echo "󰑓"
         fi
@@ -63,13 +103,20 @@ case "$SUBCOMMAND" in
         check_updates "$FORCE_RESCAN" "$FORCE_RECHECK" "$FORCE_FETCH" >/dev/null
         ;;
       list)
-        result=$(check_updates "$FORCE_RESCAN" "$FORCE_RECHECK" "$FORCE_FETCH")
-        count=$(echo "$result" | jq -r '.count')
+        # Ensure we have data
+        check_updates "$FORCE_RESCAN" "$FORCE_RECHECK" "$FORCE_FETCH" >/dev/null
+        # Get filtered results based on current mode
+        mode=$(get_filter_mode)
+        mode_name=$(get_filter_mode_name "$mode")
+        filtered=$(filter_updates_by_mode "$mode")
+        count=$(echo "$filtered" | jq -r '.count')
+        echo "Mode: $mode_name"
+        echo ""
         if [[ "$count" -eq 0 ]]; then
           echo "All packages are up to date!"
         else
           echo "Updates available ($count):"
-          echo "$result" | jq -r '.updates[] | "  \(.name): \(.installed) → \(.latest)"'
+          echo "$filtered" | jq -r '.updates[] | "  \(.name): \(.installed) → \(.latest)"'
         fi
         ;;
       open)

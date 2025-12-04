@@ -59,6 +59,15 @@ INSTALLED_CACHE="$CACHE_DIR/installed.json"
 NIXPKGS_CACHE="$CACHE_DIR/nixpkgs-versions.json"
 STATUS_FILE="$CACHE_DIR/status.json"
 LOCK_FILE="$CACHE_DIR/nixup.lock"
+MODE_FILE="$CACHE_DIR/filter-mode"
+
+# Filter modes for updates display
+# 0 = Packages (only explicit packages from config)
+# 1 = +Programs (packages + programs.*.enable)
+# 2 = All (ex. system) (current behavior with exclusions)
+# 3 = All (verbose) (everything, no exclusions)
+FILTER_MODE_NAMES=("Packages" "+Programs" "All (ex. system)" "All (verbose)")
+FILTER_MODE_COUNT=4
 
 mkdir -p "$CACHE_DIR"
 
@@ -98,4 +107,47 @@ check_lock() {
     fi
   fi
   return 1  # No instance running
+}
+
+# =============================================================================
+# Filter mode management
+# =============================================================================
+
+get_filter_mode() {
+  if [[ -f "$MODE_FILE" ]]; then
+    local mode
+    mode=$(cat "$MODE_FILE" 2>/dev/null || echo "0")
+    # Validate mode is within range
+    if [[ "$mode" =~ ^[0-9]+$ ]] && [[ "$mode" -lt "$FILTER_MODE_COUNT" ]]; then
+      echo "$mode"
+      return
+    fi
+  fi
+  echo "0"
+}
+
+set_filter_mode() {
+  local mode="$1"
+  echo "$mode" > "$MODE_FILE"
+}
+
+get_filter_mode_name() {
+  local mode="${1:-$(get_filter_mode)}"
+  echo "${FILTER_MODE_NAMES[$mode]}"
+}
+
+cycle_filter_mode() {
+  local direction="${1:-up}"
+  local current
+  current=$(get_filter_mode)
+  local new_mode
+
+  if [[ "$direction" == "up" ]]; then
+    new_mode=$(( (current + 1) % FILTER_MODE_COUNT ))
+  else
+    new_mode=$(( (current - 1 + FILTER_MODE_COUNT) % FILTER_MODE_COUNT ))
+  fi
+
+  set_filter_mode "$new_mode"
+  echo "$new_mode"
 }

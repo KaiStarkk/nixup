@@ -2,6 +2,114 @@
 # packages.sh - Package parsing, filtering, nixpkgs index, and installed package scanning
 
 # =============================================================================
+# Config-based package extraction
+# =============================================================================
+
+# Extract package names explicitly listed in nix config files
+# Looks for patterns like: pkgs.packageName, home.packages = [ packageName ]
+get_config_packages() {
+  local packages=()
+
+  # Find all .nix files in config directory
+  while IFS= read -r file; do
+    # Extract package names from various patterns:
+    # - pkgs.packageName (direct references)
+    # - packageName in lists after home.packages, environment.systemPackages
+    # - items between @nixup: hooks
+
+    # Pattern 1: pkgs.something or pkgs.lib.something at word boundaries
+    while IFS= read -r pkg; do
+      [[ -n "$pkg" ]] && packages+=("$pkg")
+    done < <(grep -oE '\bpkgs\.[a-zA-Z0-9_-]+' "$file" 2>/dev/null | sed 's/pkgs\.//' | sort -u)
+
+    # Pattern 2: items in @nixup:packages or @nixup:dev-tools hooks
+    while IFS= read -r pkg; do
+      [[ -n "$pkg" ]] && packages+=("$pkg")
+    done < <(awk '/@nixup:(packages|dev-tools)$/{found=1; next} /@nixup:end/{found=0} found{print}' "$file" 2>/dev/null | \
+      sed 's/^[[:space:]]*//' | grep -v '^$' | grep -v '^#' | sort -u)
+
+  done < <(find "$CONFIG_DIR" -name "*.nix" -type f 2>/dev/null)
+
+  # Output unique package names
+  printf '%s\n' "${packages[@]}" | sort -u
+}
+
+# Extract program names from programs.*.enable = true patterns
+get_programs_packages() {
+  local programs=()
+
+  while IFS= read -r file; do
+    # Pattern: programs.name.enable or programs.name = { enable = true
+    while IFS= read -r prog; do
+      [[ -n "$prog" ]] && programs+=("$prog")
+    done < <(grep -oE 'programs\.[a-zA-Z0-9_-]+\.(enable|settings)' "$file" 2>/dev/null | \
+      sed 's/programs\.\([^.]*\)\..*/\1/' | sort -u)
+
+    # Also catch: programName.enable = true; pattern for home-manager
+    while IFS= read -r prog; do
+      [[ -n "$prog" ]] && programs+=("$prog")
+    done < <(grep -oE '^[[:space:]]*[a-zA-Z0-9_-]+\.enable\s*=' "$file" 2>/dev/null | \
+      sed 's/^[[:space:]]*\([^.]*\)\.enable.*/\1/' | sort -u)
+  done < <(find "$CONFIG_DIR" -name "*.nix" -type f 2>/dev/null)
+
+  printf '%s\n' "${programs[@]}" | sort -u
+}
+
+# Get the allowlist of packages based on filter mode
+get_package_allowlist() {
+  local mode="${1:-$(get_filter_mode)}"
+  local allowlist=()
+
+  case "$mode" in
+    0) # Packages only
+      while IFS= read -r pkg; do
+        [[ -n "$pkg" ]] && allowlist+=("$pkg")
+      done < <(get_config_packages)
+      ;;
+    1) # Packages + Programs
+      while IFS= read -r pkg; do
+        [[ -n "$pkg" ]] && allowlist+=("$pkg")
+      done < <(get_config_packages)
+      while IFS= read -r pkg; do
+        [[ -n "$pkg" ]] && allowlist+=("$pkg")
+      done < <(get_programs_packages)
+      ;;
+    2|3) # All modes - return empty (no filtering by allowlist)
+      ;;
+  esac
+
+  printf '%s\n' "${allowlist[@]}" | sort -u
+}
+
+# Check if a package name matches the allowlist (for modes 0 and 1)
+is_in_allowlist() {
+  local name="$1"
+  local mode="${2:-$(get_filter_mode)}"
+
+  # Modes 2 and 3 don't use allowlist filtering
+  [[ "$mode" -ge 2 ]] && return 0
+
+  local allowlist_file="$CACHE_DIR/allowlist-mode-$mode.txt"
+
+  # Cache the allowlist for performance
+  if [[ ! -f "$allowlist_file" ]] || [[ $(stat -c %Y "$allowlist_file" 2>/dev/null || echo 0) -lt $(($(date +%s) - 300)) ]]; then
+    get_package_allowlist "$mode" > "$allowlist_file"
+  fi
+
+  # Check if name matches any allowlist entry (case-insensitive prefix match)
+  local name_lower="${name,,}"
+  while IFS= read -r allowed; do
+    local allowed_lower="${allowed,,}"
+    # Exact match or the installed package starts with the config name
+    if [[ "$name_lower" == "$allowed_lower" ]] || [[ "$name_lower" == "${allowed_lower}-"* ]]; then
+      return 0
+    fi
+  done < "$allowlist_file"
+
+  return 1
+}
+
+# =============================================================================
 # Package parsing
 # =============================================================================
 
@@ -30,6 +138,11 @@ parse_store_path() {
 
 is_excluded() {
   local name="$1"
+  local mode="${2:-$(get_filter_mode)}"
+
+  # Mode 3 (verbose) has no exclusions
+  [[ "$mode" -eq 3 ]] && return 1
+
   eval "case \"\$name\" in $EXCLUDE_PATTERNS) return 0 ;; esac"
   return 1
 }

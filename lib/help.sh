@@ -21,6 +21,18 @@ ${BOLD}SUBCOMMANDS:${NC}
     list              Show available updates interactively
     open              Open terminal with update list (left-click action)
 
+  ${CYAN}mode${NC} - Filter mode for updates display
+    get               Show current filter mode name
+    set <0-3>         Set filter mode by number
+    cycle [up|down]   Cycle to next/previous mode
+    list              List all available modes
+
+    ${BOLD}Modes:${NC}
+      0 - Packages      Only packages explicitly in config files
+      1 - +Programs     Packages plus programs.*.enable entries
+      2 - All (ex.)     All packages except system/build deps
+      3 - All (verbose) Everything including system packages
+
   ${CYAN}config${NC} - Configuration management
     list [hook]       List all hooks or items in a hook
     add <hook> <item> Add item to a config hook
@@ -40,6 +52,7 @@ ${BOLD}SUBCOMMANDS:${NC}
 ${BOLD}EXAMPLES:${NC}
     nixup updates count      # For status bar text
     nixup updates tooltip    # For status bar tooltip
+    nixup mode cycle up      # Switch to next filter mode
     nixup config add packages ghq
     nixup config list
 
