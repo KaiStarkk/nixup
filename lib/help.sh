@@ -90,6 +90,32 @@ ${BOLD}SUBCOMMANDS:${NC}
       nixup list boot
       nixup list programs.kitty
 
+  ${CYAN}host${NC} - Host management
+    list              List all configured hosts
+    add <name>        Create new host configuration
+    get <host> <opt>  Get option value for specific host
+    set <host> <opt> <val>  Set option for specific host
+
+  ${CYAN}service${NC} - Service management
+    list [scope]      List enabled services (system/home)
+    enable <name>     Show how to enable a service
+    disable <name>    Show how to disable a service
+    config <name>     Show current service configuration
+
+  ${CYAN}theme${NC} - Theme management (Stylix)
+    list              List available base16 themes
+    get               Show current theme and fonts
+    set <scheme>      Show how to set theme
+
+  ${CYAN}font${NC} - Font management
+    set <type> <font> Set font (type: mono, sans, serif, emoji)
+
+  ${CYAN}profile${NC} - Profile management
+    list              List available profiles
+    enable <name>     Show how to enable a profile
+    disable <name>    Show how to disable a profile
+    create <name>     Create new profile template
+
 ${BOLD}EXAMPLES:${NC}
     nixup updates count      # For status bar text
     nixup updates tooltip    # For status bar tooltip

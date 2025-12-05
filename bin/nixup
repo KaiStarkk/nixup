@@ -19,6 +19,7 @@ source "${LIB_DIR}/diff.sh"
 source "${LIB_DIR}/schema.sh"
 source "${LIB_DIR}/option.sh"
 source "${LIB_DIR}/generate.sh"
+source "${LIB_DIR}/advanced.sh"
 
 # =============================================================================
 # CLI Router
@@ -265,6 +266,104 @@ case "$SUBCOMMAND" in
 
   generate)
     generate_from_eval
+    ;;
+
+  host)
+    [[ $# -eq 0 ]] && { echo "Usage: nixup host <list|add|get|set>"; exit 1; }
+    CMD="$1"
+    shift
+
+    case "$CMD" in
+      list) host_list ;;
+      add)
+        [[ $# -lt 1 ]] && { print_error "Usage: nixup host add <hostname>"; exit 1; }
+        host_add "$1"
+        ;;
+      get)
+        [[ $# -lt 2 ]] && { print_error "Usage: nixup host get <hostname> <option>"; exit 1; }
+        host_get "$1" "$2"
+        ;;
+      set)
+        [[ $# -lt 3 ]] && { print_error "Usage: nixup host set <hostname> <option> <value>"; exit 1; }
+        host_set "$1" "$2" "$3"
+        ;;
+      *) print_error "Unknown command: $CMD"; exit 1 ;;
+    esac
+    ;;
+
+  service)
+    [[ $# -eq 0 ]] && { echo "Usage: nixup service <list|enable|disable|config>"; exit 1; }
+    CMD="$1"
+    shift
+
+    case "$CMD" in
+      list) service_list "${1:-system}" ;;
+      enable)
+        [[ $# -lt 1 ]] && { print_error "Usage: nixup service enable <service>"; exit 1; }
+        service_enable "$1"
+        ;;
+      disable)
+        [[ $# -lt 1 ]] && { print_error "Usage: nixup service disable <service>"; exit 1; }
+        service_disable "$1"
+        ;;
+      config)
+        [[ $# -lt 1 ]] && { print_error "Usage: nixup service config <service>"; exit 1; }
+        service_config "$1"
+        ;;
+      *) print_error "Unknown command: $CMD"; exit 1 ;;
+    esac
+    ;;
+
+  theme)
+    CMD="${1:-get}"
+    shift 2>/dev/null || true
+
+    case "$CMD" in
+      list) theme_list ;;
+      get) theme_get ;;
+      set)
+        [[ -z "${1:-}" ]] && { print_error "Usage: nixup theme set <scheme>"; exit 1; }
+        theme_set "$1"
+        ;;
+      *) print_error "Unknown command: $CMD"; exit 1 ;;
+    esac
+    ;;
+
+  font)
+    [[ $# -lt 2 ]] && { print_error "Usage: nixup font set <type> <font>"; exit 1; }
+    CMD="$1"
+    shift
+
+    case "$CMD" in
+      set)
+        [[ $# -lt 2 ]] && { print_error "Usage: nixup font set <type> <font>"; exit 1; }
+        font_set "$1" "$2"
+        ;;
+      *) print_error "Unknown command: $CMD"; exit 1 ;;
+    esac
+    ;;
+
+  profile)
+    [[ $# -eq 0 ]] && { echo "Usage: nixup profile <list|enable|disable|create>"; exit 1; }
+    CMD="$1"
+    shift
+
+    case "$CMD" in
+      list) profile_list ;;
+      enable)
+        [[ $# -lt 1 ]] && { print_error "Usage: nixup profile enable <name>"; exit 1; }
+        profile_enable "$1"
+        ;;
+      disable)
+        [[ $# -lt 1 ]] && { print_error "Usage: nixup profile disable <name>"; exit 1; }
+        profile_disable "$1"
+        ;;
+      create)
+        [[ $# -lt 1 ]] && { print_error "Usage: nixup profile create <name>"; exit 1; }
+        profile_create "$1"
+        ;;
+      *) print_error "Unknown command: $CMD"; exit 1 ;;
+    esac
     ;;
 
   -h|--help|help) usage ;;
