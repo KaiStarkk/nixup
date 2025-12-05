@@ -49,6 +49,33 @@ ${BOLD}SUBCOMMANDS:${NC}
   ${CYAN}dotfiles${NC} - Dotfile configuration help
     setup             Show how to set up managed dotfiles
 
+  ${CYAN}schema${NC} - View option-to-file mappings
+    (no arg)          Show full canonical file structure
+    <filter>          Filter by pattern (e.g., 'boot', 'programs')
+    tree              Show as file tree with option counts
+    validate          Check schema against actual filesystem
+
+  ${CYAN}where${NC} <option> - Find which file owns a NixOS/HM option
+    Examples:
+      nixup where boot.loader.systemd-boot.enable
+      nixup where programs.kitty.settings
+
+  ${CYAN}get${NC} <option> [scope] - Read current option value from config
+    scope: 'system' (default) or 'home'
+    Examples:
+      nixup get boot.loader.systemd-boot.enable
+      nixup get programs.fish.enable home
+
+  ${CYAN}set${NC} <option> <value> - Set option value in config file
+    Examples:
+      nixup set boot.plymouth.enable true
+      nixup set time.timeZone '"America/New_York"'
+
+  ${CYAN}list${NC} <prefix> - List options under a prefix
+    Examples:
+      nixup list boot
+      nixup list programs.kitty
+
 ${BOLD}EXAMPLES:${NC}
     nixup updates count      # For status bar text
     nixup updates tooltip    # For status bar tooltip

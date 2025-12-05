@@ -16,6 +16,8 @@ source "${LIB_DIR}/packages.sh"
 source "${LIB_DIR}/updates.sh"
 source "${LIB_DIR}/config.sh"
 source "${LIB_DIR}/diff.sh"
+source "${LIB_DIR}/schema.sh"
+source "${LIB_DIR}/option.sh"
 
 # =============================================================================
 # CLI Router
@@ -213,6 +215,38 @@ case "$SUBCOMMAND" in
       setup) dotfiles_setup ;;
       *) print_error "Unknown command: $CMD"; exit 1 ;;
     esac
+    ;;
+
+  schema)
+    CMD="${1:-}"
+    shift 2>/dev/null || true
+
+    case "$CMD" in
+      "") schema_show ;;
+      tree) schema_tree ;;
+      validate) schema_validate ;;
+      *) schema_show "$CMD" ;;
+    esac
+    ;;
+
+  where)
+    [[ $# -eq 0 ]] && { print_error "Usage: nixup where <option>"; echo "Example: nixup where boot.loader.systemd-boot.enable"; exit 1; }
+    schema_where "$1"
+    ;;
+
+  get)
+    [[ $# -eq 0 ]] && { print_error "Usage: nixup get <option> [system|home]"; exit 1; }
+    option_get "$1" "${2:-system}"
+    ;;
+
+  set)
+    [[ $# -lt 2 ]] && { print_error "Usage: nixup set <option> <value>"; exit 1; }
+    option_set "$1" "$2"
+    ;;
+
+  list)
+    [[ $# -eq 0 ]] && { print_error "Usage: nixup list <option-prefix>"; exit 1; }
+    option_list "$1"
     ;;
 
   -h|--help|help) usage ;;
