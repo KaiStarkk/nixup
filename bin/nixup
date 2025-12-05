@@ -18,6 +18,7 @@ source "${LIB_DIR}/config.sh"
 source "${LIB_DIR}/diff.sh"
 source "${LIB_DIR}/schema.sh"
 source "${LIB_DIR}/option.sh"
+source "${LIB_DIR}/generate.sh"
 
 # =============================================================================
 # CLI Router
@@ -194,7 +195,7 @@ case "$SUBCOMMAND" in
     ;;
 
   diff)
-    [[ $# -eq 0 ]] && { echo "Usage: nixup diff <list|restore|clear>"; exit 1; }
+    [[ $# -eq 0 ]] && { echo "Usage: nixup diff <list|restore|clear|system>"; exit 1; }
     CMD="$1"
     shift
 
@@ -202,6 +203,7 @@ case "$SUBCOMMAND" in
       list) diff_list ;;
       restore) diff_restore "$@" ;;
       clear) diff_clear ;;
+      system) generate_diff_system "${1:-}" ;;
       *) print_error "Unknown command: $CMD"; exit 1 ;;
     esac
     ;;
@@ -247,6 +249,22 @@ case "$SUBCOMMAND" in
   list)
     [[ $# -eq 0 ]] && { print_error "Usage: nixup list <option-prefix>"; exit 1; }
     option_list "$1"
+    ;;
+
+  init)
+    generate_init "${1:-./nixos-config}"
+    ;;
+
+  validate)
+    generate_validate
+    ;;
+
+  migrate)
+    generate_migrate "${1:-$CONFIG_DIR}"
+    ;;
+
+  generate)
+    generate_from_eval
     ;;
 
   -h|--help|help) usage ;;

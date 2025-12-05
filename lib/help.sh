@@ -41,13 +41,27 @@ ${BOLD}SUBCOMMANDS:${NC}
     get <hook>        Get value from a config hook
     init <file> <hook> Initialize a new hook point
 
-  ${CYAN}diff${NC} - Dotfile backup management
+  ${CYAN}diff${NC} - Dotfile backup and system comparison
     list              List all backed up dotfiles
     restore <file>    Restore a backed up dotfile
     clear             Remove all backups
+    system [option]   Compare declared vs running system config
 
   ${CYAN}dotfiles${NC} - Dotfile configuration help
     setup             Show how to set up managed dotfiles
+
+  ${CYAN}init${NC} [path] - Create new nixup-compatible config
+    Creates canonical directory structure with schema.yaml
+    Default path: ./nixos-config
+
+  ${CYAN}validate${NC} - Check config structure matches schema
+    Verifies required files exist and hooks are present
+
+  ${CYAN}migrate${NC} [path] - Analyze config for migration
+    Suggests refactoring steps for existing configs
+
+  ${CYAN}generate${NC} - Generate config from evaluation (experimental)
+    Regenerate files based on current option values
 
   ${CYAN}schema${NC} - View option-to-file mappings
     (no arg)          Show full canonical file structure
