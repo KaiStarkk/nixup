@@ -20,6 +20,7 @@ source "${LIB_DIR}/schema.sh"
 source "${LIB_DIR}/option.sh"
 source "${LIB_DIR}/generate.sh"
 source "${LIB_DIR}/advanced.sh"
+source "${LIB_DIR}/audit.sh"
 
 # =============================================================================
 # CLI Router
@@ -364,6 +365,10 @@ case "$SUBCOMMAND" in
         ;;
       *) print_error "Unknown command: $CMD"; exit 1 ;;
     esac
+    ;;
+
+  audit)
+    audit_run "$@"
     ;;
 
   -h|--help|help) usage ;;

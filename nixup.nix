@@ -36,6 +36,11 @@ stdenv.mkDerivation {
     install -Dm644 lib/updates.sh $out/lib/updates.sh
     install -Dm644 lib/config.sh $out/lib/config.sh
     install -Dm644 lib/diff.sh $out/lib/diff.sh
+    install -Dm644 lib/schema.sh $out/lib/schema.sh
+    install -Dm644 lib/option.sh $out/lib/option.sh
+    install -Dm644 lib/generate.sh $out/lib/generate.sh
+    install -Dm644 lib/advanced.sh $out/lib/advanced.sh
+    install -Dm644 lib/audit.sh $out/lib/audit.sh
 
     # Wrap the script with required dependencies
     wrapProgram $out/bin/nixup \

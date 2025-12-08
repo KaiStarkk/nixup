@@ -27,6 +27,13 @@ Track and restore Home Manager dotfile overwrites.
 - Restore previous versions
 - Compare changes
 
+### 🔍 Audit - System Conformity Checker
+Identify untracked state and non-conformity in your NixOS system.
+
+- Detect files outside Nix management
+- Flag non-XDG-compliant dotfiles
+- Severity levels: Info, Warn
+
 ## Installation
 
 ### As a Flake Input
@@ -183,6 +190,37 @@ nixup diff restore Cursor/User/settings.json --merge
 # Clear all backups
 nixup diff clear
 ```
+
+### System Audit
+
+```bash
+# Run full audit
+nixup audit
+
+# Audit specific areas
+nixup audit --boot    # Check /boot matches system config
+nixup audit --usr     # Check /usr structure (should only have /usr/bin/env)
+nixup audit --etc     # Find unmanaged files in /etc
+nixup audit --home    # Check dotfiles management
+```
+
+#### Roadmap
+
+**Implemented:**
+- `/boot` - Compare against `/run/current-system`
+- `/usr` - Verify NixOS-compliant structure
+- `/etc` - Detect non-symlinked (unmanaged) files
+- `~/.*` - Flag dotfiles not symlinked to store or declared in nixup hooks
+
+**Planned:**
+- `/var`, `/srv` state detection with allowlists
+- XDG compliance checking for home directories
+- Home-manager generation parsing for managed path detection
+- User-configurable ignore patterns
+
+**Open questions:**
+- Should `--fix` mode auto-migrate dotfiles to XDG locations?
+- How verbose should `/var` auditing be given legitimate service state?
 
 ## Configuration
 

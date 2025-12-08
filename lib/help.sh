@@ -47,6 +47,13 @@ ${BOLD}SUBCOMMANDS:${NC}
     clear             Remove all backups
     system [option]   Compare declared vs running system config
 
+  ${CYAN}audit${NC} - System conformity checker
+    (no args)         Run all audits
+    --boot            Audit /boot directory
+    --usr             Audit /usr structure
+    --etc             Audit /etc for unmanaged files
+    --home            Audit home dotfiles
+
   ${CYAN}dotfiles${NC} - Dotfile configuration help
     setup             Show how to set up managed dotfiles
 
