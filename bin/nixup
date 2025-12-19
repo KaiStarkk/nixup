@@ -21,6 +21,7 @@ source "${LIB_DIR}/option.sh"
 source "${LIB_DIR}/generate.sh"
 source "${LIB_DIR}/advanced.sh"
 source "${LIB_DIR}/audit.sh"
+source "${LIB_DIR}/inputs.sh"
 
 # =============================================================================
 # CLI Router
@@ -160,6 +161,37 @@ case "$SUBCOMMAND" in
             fi
             ;;
         esac
+        ;;
+      *) print_error "Unknown command: $CMD"; exit 1 ;;
+    esac
+    ;;
+
+  inputs)
+    [[ $# -eq 0 ]] && { echo "Usage: nixup inputs <count|tooltip|list|fetch>"; exit 1; }
+    CMD="$1"
+    shift
+
+    FORCE_REFRESH=false
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --refresh) FORCE_REFRESH=true; shift ;;
+        *) print_error "Unknown option: $1"; exit 1 ;;
+      esac
+    done
+
+    case "$CMD" in
+      count)
+        inputs_count
+        ;;
+      tooltip)
+        inputs_tooltip
+        ;;
+      list)
+        inputs_list "$FORCE_REFRESH"
+        ;;
+      fetch)
+        check_inputs "$FORCE_REFRESH" >/dev/null
+        echo "Flake inputs checked."
         ;;
       *) print_error "Unknown command: $CMD"; exit 1 ;;
     esac

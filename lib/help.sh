@@ -33,6 +33,12 @@ ${BOLD}SUBCOMMANDS:${NC}
       2 - All (ex.)     All packages except system/build deps
       3 - All (verbose) Everything including system packages
 
+  ${CYAN}inputs${NC} - Flake input version tracking
+    count             Output outdated input count
+    tooltip           Status bar tooltip with outdated inputs
+    list              Show all inputs with status
+    fetch             Refresh input data from GitHub
+
   ${CYAN}config${NC} - Configuration management
     list [hook]       List all hooks or items in a hook
     add <hook> <item> Add item to a config hook
