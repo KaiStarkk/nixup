@@ -13,6 +13,8 @@
   nix,
   diffutils,
   findutils,
+  gitMinimal,
+  gh,
 }:
 stdenv.mkDerivation {
   pname = "nixup";
@@ -41,6 +43,7 @@ stdenv.mkDerivation {
     install -Dm644 lib/generate.sh $out/lib/generate.sh
     install -Dm644 lib/advanced.sh $out/lib/advanced.sh
     install -Dm644 lib/audit.sh $out/lib/audit.sh
+    install -Dm644 lib/inputs.sh $out/lib/inputs.sh
 
     # Wrap the script with required dependencies
     wrapProgram $out/bin/nixup \
@@ -56,6 +59,8 @@ stdenv.mkDerivation {
         nix
         diffutils
         findutils
+        gitMinimal
+        gh
       ]}
 
     runHook postInstall
